@@ -52,6 +52,9 @@ $arguments =  ['A'=>4,'B'=>5,'C'=>'php'];
 $data = $client->__call("Arith.Multiply",$arguments);
 var_dump($data);
 ```
+TODO
+* 缺少连接管理, 参考mysql,goredis,kitec
+* 补充单元测试
 
 
 If you any questions, use [Issues](https://github.com/gyf19/yar-go/issues).

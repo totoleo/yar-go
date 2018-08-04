@@ -2,7 +2,6 @@ package yar
 
 import (
 	"encoding/json"
-	"errors"
 )
 
 type jsonPack struct {
@@ -18,7 +17,7 @@ func newJsonPack() *jsonPack {
 
 func (m *jsonPack) Marshal(x interface{}) (data []byte, err error) {
 	if x == nil {
-		return nil, errors.New("yar: serverResponse null")
+		return nil, NilResponseErr
 	}
 	return json.Marshal(x)
 }

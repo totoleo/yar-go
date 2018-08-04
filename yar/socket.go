@@ -4,7 +4,6 @@
 package yar
 
 import (
-	"fmt"
 	"io"
 	"net"
 	"net/rpc"
@@ -70,15 +69,17 @@ func (c *clientCodec) ReadResponseHeader(r *rpc.Response) error {
 
 	r.Error = ""
 	r.Seq = Id
-	if c.resp.Error != "" || c.resp.Result == nil {
-		fmt.Errorf("invalid error %v", c.resp.Error)
-		r.Error = c.resp.Error
+	if c.resp.Error != nil {
+		r.Error = c.resp.Error.String()
 	}
 	return nil
 }
 
 func (c *clientCodec) ReadResponseBody(x interface{}) error {
 	if x == nil {
+		return nil
+	}
+	if c.resp.Result == nil {
 		return nil
 	}
 	return c.packer.Unmarshal(*c.resp.Result, x)

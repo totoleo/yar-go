@@ -1,7 +1,6 @@
 package yar
 
 import (
-	"errors"
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
@@ -18,7 +17,7 @@ func newMsgpackPack() *msgpackPack {
 
 func (m *msgpackPack) Marshal(x interface{}) (data []byte, err error) {
 	if x == nil {
-		return nil, errors.New("yar: serverResponse null")
+		return nil, NilResponseErr
 	}
 	return msgpack.Marshal(x)
 }

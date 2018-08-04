@@ -2,10 +2,9 @@ package yar
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
-
 	"io"
-
 	"strings"
 	"sync"
 )
@@ -16,6 +15,8 @@ const YAR_PROTOCOL_RESERVED = 0
 
 var YAR_PROTOCOL_TOKEN = [32]byte{}
 var YAR_PROVIDER = [32]byte{'Y', 'a', 'r', ' ', 'G', 'o', ' ', 'C', 'l', 'i', 'e', 'n', 't'}
+
+var NilResponseErr = errors.New("yar: serverResponse null")
 
 var headerPool *sync.Pool
 var packagers map[string]Packager
@@ -113,11 +114,11 @@ func (m *serverRequest) GetMethod() string {
 }
 
 type serverResponse struct {
-	Id     int64        `json:"i" msgpack:"i"`
-	Error  string       `json:"e" msgpack:"e"`
-	Output string       `json:"o" msgpack:"o"`
-	Status int          `json:"s" msgpack:"s"`
-	Result *interface{} `json:"r" msgpack:"r"`
+	Id     int64         `json:"i" msgpack:"i"`
+	Error  *yarException `json:"e" msgpack:"e"`
+	Output string        `json:"o" msgpack:"o"`
+	Status int           `json:"s" msgpack:"s"`
+	Result *interface{}  `json:"r" msgpack:"r"`
 }
 
 func (m *serverResponse) Reset() { *m = serverResponse{} }
@@ -130,8 +131,8 @@ func (m *serverResponse) GetId() int64 {
 }
 
 func (m *serverResponse) GetError() string {
-	if m != nil && m.Error != "" {
-		return m.Error
+	if m != nil && m.Error != nil {
+		return m.Error.String()
 	}
 	return ""
 }
@@ -142,19 +143,32 @@ type clientRequest struct {
 	Params interface{} `json:"p" msgpack:"p"`
 }
 
+type yarException struct {
+	Code    int    `json:"e" msgpack:"e"`
+	Message string `json:"message" msgpack:"message"`
+	File    string `json:"file" msgpack:"file"`
+	Line    int    `json:"line" msgpack:"line"`
+	Type    string `json:"_type" msgpack:"_type"`
+}
+
+func (ye *yarException) String() string {
+	ret, _ := json.Marshal(ye)
+	return string(ret)
+}
+
 type clientResponse struct {
-	Header *YarHeader  `json:"_" msgpack:"_"`
-	Id     int64       `json:"i" msgpack:"i"`
-	Error  string      `json:"e" msgpack:"e"`
-	Output string      `json:"o" msgpack:"o"`
-	Status int         `json:"s" msgpack:"s"`
-	Result *RawMessage `json:"r" msgpack:"r"`
+	Header *YarHeader    `json:"_" msgpack:"_"`
+	Id     int64         `json:"i" msgpack:"i"`
+	Status int           `json:"s" msgpack:"s"`
+	Result *RawMessage   `json:"r" msgpack:"r"`
+	Output *RawMessage   `json:"o" msgpack:"o"`
+	Error  *yarException `json:"e" msgpack:"e"`
 }
 
 func (r *clientResponse) reset() {
 	r.Id = 0
 	r.Result = nil
-	r.Error = ""
+	r.Error = nil
 	r.Header = nil
 }
 
@@ -190,6 +204,10 @@ func readPack(r io.Reader, x interface{}) (Packager, error) {
 	binary.Read(r, binary.BigEndian, &header.token)
 	binary.Read(r, binary.BigEndian, &header.body_len)
 	binary.Read(r, binary.BigEndian, &header.packager)
+
+	if header.magic_num != YAR_PROTOCOL_MAGIC_NUM {
+		return nil, errors.New("malformed response header")
+	}
 
 	if header.body_len < 8 || header.body_len > 2*1024*1024 {
 		return nil, errors.New("yar: Response header missing params")

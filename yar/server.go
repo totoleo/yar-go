@@ -6,6 +6,7 @@ package yar
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -14,6 +15,9 @@ import (
 )
 
 var errMissingParams = errors.New("jsonrpc: request body missing params")
+var invalidSeqErr = errors.New("invalid sequence number in response")
+
+//var jsonRpcConnected = "200 Connected to JSON RPC"
 
 type serverCodec struct {
 	r io.Reader
@@ -69,34 +73,33 @@ func (c *serverCodec) ReadRequestBody(x interface{}) error {
 	return c.packer.Unmarshal(*c.req.Params, &x)
 }
 
-var invalidRequest = struct{}{}
-
 func (c *serverCodec) WriteResponse(r *rpc.Response, x interface{}) error {
 	c.mutex.Lock()
 	id, ok := c.pending[r.Seq]
 	if !ok {
 		c.mutex.Unlock()
-		return errors.New("invalid sequence number in response")
+		return invalidSeqErr
 	}
 	delete(c.pending, r.Seq)
 	c.mutex.Unlock()
-
-	resp := serverResponse{
+	resp := &serverResponse{
 		Id:     id,
-		Error:  "",
+		Error:  nil,
 		Result: nil,
 		Output: "",
 		Status: 0,
 	}
-
+	var exception yarException
 	if r.Error == "" {
 		resp.Result = &x
 	} else {
-		resp.Error = r.Error
+		exception = yarException{
+			Message: r.Error,
+		}
+		resp.Error = &exception
 	}
-
 	Id := (int32)(resp.Id)
-	err := writePack(c.w, c.packer, Id, &resp)
+	err := writePack(c.w, c.packer, Id, resp)
 	if err != nil {
 		return err
 	}
@@ -111,8 +114,6 @@ func ServeConn(conn io.ReadWriteCloser) {
 	rpc.ServeCodec(NewServerCodec(conn))
 }
 
-var jsonRpcConnected = "200 Connected to JSON RPC"
-
 type Server struct {
 	*rpc.Server
 }
@@ -125,10 +126,16 @@ func (server *Server) Accept(lis net.Listener) {
 		conn, err := lis.Accept()
 		if err != nil {
 			log.Fatal("rpc.Serve: accept:", err.Error()) // TODO(r): exit?
+
 		}
 		go server.ServeConn(conn)
 	}
 }
 func (server *Server) ServeConn(conn io.ReadWriteCloser) {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println(err)
+		}
+	}()
 	server.ServeCodec(NewServerCodec(conn))
 }

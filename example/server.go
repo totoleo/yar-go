@@ -1,20 +1,20 @@
 package main
 
 import (
-	"github.com/gyf19/yar-go/yar"
+	"errors"
 	"fmt"
 	"net"
 	"runtime"
-	"sync"
+
+	"github.com/totoleo/yar-go/yar"
 )
-
-
-type Arith int
 
 type Args struct {
 	A, B int
 	C    string
 }
+
+type Arith int
 
 func init() {
 }
@@ -22,29 +22,21 @@ func init() {
 func (t *Arith) Multiply(args *Args, reply *Args) error {
 	reply.A = args.A * args.B
 	reply.C = args.C + "_hello"
-	return nil
+	return errors.New("hello")
 }
 
-var worker = runtime.NumCPU()
-
 func main() {
+	var worker = runtime.NumCPU()
 	runtime.GOMAXPROCS(worker)
 
 	var server = yar.NewServer()
 	server.Register(new(Arith))
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		listener, err := net.Listen("tcp", ":12345")
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		wg.Done()
-		server.Accept(listener)
-	}()
-	wg.Wait()
-	fmt.Scanln()
+	listener, err := net.Listen("tcp", ":12345")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	server.Accept(listener)
 
 }

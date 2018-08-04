@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/rpc"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"sync"
 )
+
+var malformedHttpRespErr = errors.New("malformed HTTP response")
 
 type clientHttpCodec struct {
 	r *bufio.Reader
@@ -34,7 +35,7 @@ type clientHttpCodec struct {
 }
 
 // NewClientCodec returns a new rpc.ClientCodec using Yar-RPC on conn.
-func NewClientHtppCodec(conn io.ReadWriteCloser, u *url.URL, packagerName string) rpc.ClientCodec {
+func NewClientHttpCodec(conn io.ReadWriteCloser, u *url.URL, packagerName string) rpc.ClientCodec {
 	packer, _ := getPackager(packagerName)
 	return &clientHttpCodec{
 		r:       bufio.NewReader(conn),
@@ -52,7 +53,7 @@ func (c *clientHttpCodec) WriteRequest(r *rpc.Request, param interface{}) error 
 	c.pending[r.Seq] = r.ServiceMethod
 	c.mutex.Unlock()
 	c.req.Method = r.ServiceMethod
-	c.req.Params = []interface{}{&param}
+	c.req.Params = &param
 	c.req.Id = (int64)(r.Seq)
 
 	data, err := c.packer.Marshal(c.req)
@@ -61,7 +62,8 @@ func (c *clientHttpCodec) WriteRequest(r *rpc.Request, param interface{}) error 
 	}
 	//write http header
 	httpLenth := strconv.Itoa(len(data) + 90)
-	io.WriteString(c.w, "POST "+c.path+" HTTP/1.1\r\nHost: "+c.host+"\r\nContent-Type: application/x-www-form-urle\r\nUser-Agent: Go Yar Rpc-1.2.4\r\nConnection: keep-alive\r\nContent-Length: "+httpLenth+"\r\n\r\n")
+	headerLoad := "POST " + c.path + " HTTP/1.1\r\nHost: " + c.host + "\r\nContent-Type: application/octet-stream\r\nCookie: XDEBUG_SESSION=PHPSTORM\r\nUser-Agent: Go Yar Rpc-1.2.4\r\nConnection: keep-alive\r\nContent-Length: " + httpLenth + "\r\n\r\n"
+	io.WriteString(c.w, headerLoad)
 	header := headerPool.Get().(*YarHeader)
 	defer headerPool.Put(header)
 
@@ -87,6 +89,9 @@ func (c *clientHttpCodec) ReadResponseHeader(r *rpc.Response) error {
 	c.resp.reset()
 
 	//read http header
+	//out, _ := ioutil.ReadAll(c.r)
+	//fmt.Println(string(out))
+	//return nil
 	tp := textproto.NewReader(c.r)
 	line, err := tp.ReadLine()
 	if err != nil {
@@ -97,7 +102,7 @@ func (c *clientHttpCodec) ReadResponseHeader(r *rpc.Response) error {
 	}
 	f := strings.SplitN(line, " ", 3)
 	if len(f) < 2 {
-		return errors.New("malformed HTTP response")
+		return malformedHttpRespErr
 	}
 	_, err = tp.ReadMIMEHeader()
 	if err != nil {
@@ -119,9 +124,9 @@ func (c *clientHttpCodec) ReadResponseHeader(r *rpc.Response) error {
 
 	r.Error = ""
 	r.Seq = Id
-	if c.resp.Error != "" || c.resp.Result == nil {
-		fmt.Errorf("invalid error %v", c.resp.Error)
-		r.Error = c.resp.Error
+	if c.resp.Error != nil || c.resp.Result == nil {
+		//fmt.Errorf("invalid error %v", c.resp.Error)
+		r.Error = c.resp.Error.String()
 	}
 	return nil
 }
@@ -139,7 +144,7 @@ func (c *clientHttpCodec) Close() error {
 }
 
 func NewHttpClient(conn io.ReadWriteCloser, u *url.URL, packagerName string) *rpc.Client {
-	return rpc.NewClientWithCodec(NewClientHtppCodec(conn, u, packagerName))
+	return rpc.NewClientWithCodec(NewClientHttpCodec(conn, u, packagerName))
 }
 
 func DialHTTP(urlStr string, packagerName string) (*rpc.Client, error) {
